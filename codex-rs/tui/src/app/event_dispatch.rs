@@ -1118,6 +1118,7 @@ impl App {
                                         /*approval_policy*/ None,
                                         /*approvals_reviewer*/ None,
                                         /*permission_profile*/ None,
+                                        /*active_permission_profile*/ None,
                                         #[cfg(target_os = "windows")]
                                         Some(windows_sandbox_level),
                                         /*model*/ None,
@@ -1144,6 +1145,7 @@ impl App {
                                         /*approval_policy*/ None,
                                         /*approvals_reviewer*/ None,
                                         /*permission_profile*/ None,
+                                        /*active_permission_profile*/ None,
                                         #[cfg(target_os = "windows")]
                                         Some(windows_sandbox_level),
                                         /*model*/ None,
@@ -1171,6 +1173,7 @@ impl App {
                                         Some(AskForApproval::from(preset.approval)),
                                         Some(self.config.approvals_reviewer),
                                         Some(preset.permission_profile.clone()),
+                                        /*active_permission_profile*/ None,
                                         #[cfg(target_os = "windows")]
                                         Some(windows_sandbox_level),
                                         /*model*/ None,
