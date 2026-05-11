@@ -3399,7 +3399,7 @@ impl ChatWidget {
         if ev.status == GuardianAssessmentStatus::Approved {
             let cell = if let Some(command) = guardian_command(&ev.action) {
                 history_cell::new_approval_decision_cell(
-                    command,
+                    history_cell::ApprovalDecisionSubject::Command(command),
                     crate::history_cell::ReviewDecision::Approved,
                     history_cell::ApprovalDecisionActor::Guardian,
                 )
@@ -3419,7 +3419,7 @@ impl ChatWidget {
         if ev.status == GuardianAssessmentStatus::TimedOut {
             let cell = if let Some(command) = guardian_command(&ev.action) {
                 history_cell::new_approval_decision_cell(
-                    command,
+                    history_cell::ApprovalDecisionSubject::Command(command),
                     crate::history_cell::ReviewDecision::TimedOut,
                     history_cell::ApprovalDecisionActor::Guardian,
                 )
@@ -3463,7 +3463,7 @@ impl ChatWidget {
         self.review.recent_auto_review_denials.push(ev.clone());
         let cell = if let Some(command) = guardian_command(&ev.action) {
             history_cell::new_approval_decision_cell(
-                command,
+                history_cell::ApprovalDecisionSubject::Command(command),
                 crate::history_cell::ReviewDecision::Denied,
                 history_cell::ApprovalDecisionActor::Guardian,
             )
