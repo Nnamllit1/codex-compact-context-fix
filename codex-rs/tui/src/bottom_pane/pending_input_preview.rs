@@ -94,7 +94,7 @@ impl PendingInputPreview {
                     .display_label()
                     .cyan()
                     .bold(),
-                " to resume queued sends".into(),
+                " when composer is empty to resume".into(),
             ]));
         }
 

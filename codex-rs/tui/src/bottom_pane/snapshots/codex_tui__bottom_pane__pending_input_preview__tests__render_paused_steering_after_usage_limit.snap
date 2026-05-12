@@ -6,7 +6,7 @@ Buffer {
     area: Rect { x: 0, y: 0, width: 48, height: 5 },
     content: [
         "• Queued sends paused after usage limit         ",
-        "  Press enter to resume queued sends            ",
+        "  Press enter when composer is empty to resume  ",
         "                                                ",
         "• Messages to be submitted at end of turn       ",
         "  ↳ Check the final command output.             ",
