@@ -174,12 +174,16 @@ view_image = false
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn config_read_normalizes_legacy_forced_chatgpt_workspace_id() -> Result<()> {
+    const WORKSPACE_ID: &str = "123e4567-e89b-42d3-a456-426614174000";
+
     let codex_home = TempDir::new()?;
     write_config(
         &codex_home,
-        r#"
-forced_chatgpt_workspace_id = "ws_123"
-"#,
+        &format!(
+            r#"
+forced_chatgpt_workspace_id = "{WORKSPACE_ID}"
+"#
+        ),
     )?;
 
     let mut mcp = McpProcess::new(codex_home.path()).await?;
@@ -200,7 +204,7 @@ forced_chatgpt_workspace_id = "ws_123"
 
     assert_eq!(
         config.forced_chatgpt_workspace_id,
-        Some(vec!["ws_123".to_string()])
+        Some(vec![WORKSPACE_ID.to_string()])
     );
 
     Ok(())
