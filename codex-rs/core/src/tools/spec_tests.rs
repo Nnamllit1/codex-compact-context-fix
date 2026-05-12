@@ -19,6 +19,8 @@ use codex_protocol::protocol::SessionSource;
 use codex_tools::AdditionalProperties;
 use codex_tools::DiscoverableTool;
 use codex_tools::JsonSchema;
+use codex_tools::JsonSchemaPrimitiveType;
+use codex_tools::JsonSchemaType;
 use codex_tools::LoadableToolSpec;
 use codex_tools::REQUEST_PLUGIN_INSTALL_TOOL_NAME;
 use codex_tools::ResponsesApiNamespaceTool;
@@ -1139,7 +1141,7 @@ async fn unavailable_mcp_tools_are_exposed_as_dummy_function_tools() {
 }
 
 #[tokio::test]
-async fn test_mcp_tool_property_missing_type_defaults_to_string() {
+async fn test_mcp_tool_property_missing_type_defaults_to_open_object() {
     let config = test_config().await;
     let model_info = construct_model_info_offline("gpt-5.4", &config);
     let mut features = Features::with_defaults();
@@ -1185,7 +1187,13 @@ async fn test_mcp_tool_property_missing_type_defaults_to_string() {
                 /*properties*/
                 BTreeMap::from([(
                     "query".to_string(),
-                    JsonSchema::string(Some("search query".to_string())),
+                    JsonSchema {
+                        schema_type: Some(JsonSchemaType::Single(JsonSchemaPrimitiveType::Object)),
+                        description: Some("search query".to_string()),
+                        properties: Some(BTreeMap::new()),
+                        additional_properties: Some(true.into()),
+                        ..Default::default()
+                    },
                 )]),
                 /*required*/ None,
                 /*additional_properties*/ None
