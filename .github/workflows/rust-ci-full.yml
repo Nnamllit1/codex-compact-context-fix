@@ -749,7 +749,7 @@ jobs:
     name: Build Windows x64 nextest archive
     runs-on:
       group: codex-runners
-      labels: codex-windows-x64-xl
+      labels: codex-windows-x64
     timeout-minutes: 45
     defaults:
       run:
