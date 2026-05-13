@@ -624,6 +624,11 @@ client_request_definitions! {
         serialization: global_shared_read("config"),
         response: v2::PluginListResponse,
     },
+    PluginInstalled => "plugin/installed" {
+        params: v2::PluginInstalledParams,
+        serialization: global_shared_read("config"),
+        response: v2::PluginInstalledResponse,
+    },
     PluginRead => "plugin/read" {
         params: v2::PluginReadParams,
         serialization: global("config"),
@@ -1685,6 +1690,18 @@ mod tests {
         };
         assert_eq!(
             plugin_list.serialization_scope(),
+            Some(ClientRequestSerializationScope::GlobalSharedRead("config"))
+        );
+
+        let plugin_installed = ClientRequest::PluginInstalled {
+            request_id: request_id(),
+            params: v2::PluginInstalledParams {
+                cwds: None,
+                install_suggestion_plugin_names: None,
+            },
+        };
+        assert_eq!(
+            plugin_installed.serialization_scope(),
             Some(ClientRequestSerializationScope::GlobalSharedRead("config"))
         );
 
