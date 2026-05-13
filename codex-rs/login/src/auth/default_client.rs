@@ -16,6 +16,7 @@ use reqwest::header::USER_AGENT;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::RwLock;
+use std::time::Duration;
 
 /// Set this to add a suffix to the User-Agent string.
 ///
@@ -36,6 +37,7 @@ pub static USER_AGENT_SUFFIX: LazyLock<Mutex<Option<String>>> = LazyLock::new(||
 pub const DEFAULT_ORIGINATOR: &str = "codex_cli_rs";
 pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 pub const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
+const DEFAULT_TCP_USER_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub use codex_config::ResidencyRequirement;
 
@@ -203,7 +205,9 @@ pub fn create_client() -> CodexHttpClient {
 pub fn build_reqwest_client() -> reqwest::Client {
     try_build_reqwest_client().unwrap_or_else(|error| {
         tracing::warn!(error = %error, "failed to build default reqwest client");
-        with_chatgpt_cloudflare_cookie_store(reqwest::Client::builder())
+        with_chatgpt_cloudflare_cookie_store(
+            reqwest::Client::builder().tcp_user_timeout(DEFAULT_TCP_USER_TIMEOUT),
+        )
             .build()
             .unwrap_or_else(|fallback_error| {
                 tracing::warn!(
@@ -221,6 +225,9 @@ pub fn build_reqwest_client() -> reqwest::Client {
 /// this method directly.
 pub fn try_build_reqwest_client() -> Result<reqwest::Client, BuildCustomCaTransportError> {
     let mut builder = reqwest::Client::builder().default_headers(default_headers());
+    // reqwest defaults tcp_user_timeout to 30s on Linux-family targets, which is too short for
+    // long-running unary requests such as remote compaction.
+    builder = builder.tcp_user_timeout(DEFAULT_TCP_USER_TIMEOUT);
     if is_sandboxed() {
         builder = builder.no_proxy();
     }
