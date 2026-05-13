@@ -1,0 +1,50 @@
+name: fork-sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "19 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'Nnamllit1/codex-compact-context-fix'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Configure git
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync from upstream main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/openai/codex.git
+          git fetch upstream main
+
+          before_sha="$(git rev-parse HEAD)"
+          git merge --no-edit upstream/main
+          after_sha="$(git rev-parse HEAD)"
+
+          if [[ "${before_sha}" == "${after_sha}" ]]; then
+            echo "No upstream changes to sync."
+            exit 0
+          fi
+
+          git push origin HEAD:master

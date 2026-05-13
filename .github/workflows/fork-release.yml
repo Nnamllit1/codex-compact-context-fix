@@ -1,0 +1,261 @@
+name: fork-release
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'Nnamllit1/codex-compact-context-fix'
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_version: ${{ steps.meta.outputs.release_version }}
+      upstream_sha: ${{ steps.meta.outputs.upstream_sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/openai/codex.git
+          git fetch --depth=1 upstream main
+
+          cargo_version="$(grep -m1 '^version' codex-rs/Cargo.toml | sed -E 's/version *= *"([^"]+)".*/\1/')"
+          short_sha="$(git rev-parse --short=7 HEAD)"
+          release_version="${cargo_version}-fork.${short_sha}"
+          release_tag="rust-v${release_version}"
+          upstream_sha="$(git rev-parse --short=12 upstream/main)"
+
+          echo "release_version=${release_version}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=${upstream_sha}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    if: github.repository == 'Nnamllit1/codex-compact-context-fix'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            package: codex-linux-x64
+            npm_tag: linux-x64
+            exe_suffix: ""
+            build_bwrap: "true"
+          - runner: ubuntu-24.04
+            target: aarch64-unknown-linux-musl
+            package: codex-linux-arm64
+            npm_tag: linux-arm64
+            exe_suffix: ""
+            build_bwrap: "true"
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            package: codex-darwin-x64
+            npm_tag: darwin-x64
+            exe_suffix: ""
+            build_bwrap: "false"
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            package: codex-darwin-arm64
+            npm_tag: darwin-arm64
+            exe_suffix: ""
+            build_bwrap: "false"
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            package: codex-win32-x64
+            npm_tag: win32-x64
+            exe_suffix: ".exe"
+            build_bwrap: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux build prerequisites
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config libcap-dev zstd
+
+      - name: Install Zig for musl targets
+        if: runner.os == 'Linux'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.0
+          use-cache: false
+
+      - name: Install musl build tools
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
+
+      - uses: facebook/install-dotslash@v2
+
+      - name: Build fork binaries
+        shell: bash
+        env:
+          AWS_LC_SYS_NO_JITTER_ENTROPY: "1"
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          cargo build --manifest-path codex-rs/Cargo.toml --release --target "$TARGET" --bin codex
+          if [[ "${{ matrix.build_bwrap }}" == "true" ]]; then
+            cargo build --manifest-path codex-rs/Cargo.toml --release --target "$TARGET" --bin bwrap
+          fi
+          if [[ "$TARGET" == *windows* ]]; then
+            cargo build --manifest-path codex-rs/Cargo.toml --release --target "$TARGET" --bin codex-windows-sandbox-setup --bin codex-command-runner
+          fi
+
+      - name: Stage vendor payload
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          EXE_SUFFIX: ${{ matrix.exe_suffix }}
+          BUILD_BWRAP: ${{ matrix.build_bwrap }}
+        run: |
+          set -euo pipefail
+          native_root="${RUNNER_TEMP}/native-${TARGET}"
+          target_root="${native_root}/vendor/${TARGET}"
+
+          rm -rf "${native_root}"
+          mkdir -p "${target_root}/codex"
+
+          python codex-cli/scripts/install_native_deps.py --component rg "${native_root}"
+
+          cp "codex-rs/target/${TARGET}/release/codex${EXE_SUFFIX}" "${target_root}/codex/codex${EXE_SUFFIX}"
+
+          if [[ "${BUILD_BWRAP}" == "true" ]]; then
+            mkdir -p "${target_root}/codex-resources"
+            cp "codex-rs/target/${TARGET}/release/bwrap" "${target_root}/codex-resources/bwrap"
+          fi
+
+          if [[ "${TARGET}" == *windows* ]]; then
+            cp "codex-rs/target/${TARGET}/release/codex-windows-sandbox-setup.exe" "${target_root}/codex/codex-windows-sandbox-setup.exe"
+            cp "codex-rs/target/${TARGET}/release/codex-command-runner.exe" "${target_root}/codex/codex-command-runner.exe"
+          fi
+
+      - name: Build platform npm tarball
+        shell: bash
+        env:
+          PACKAGE: ${{ matrix.package }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          NPM_TAG: ${{ matrix.npm_tag }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          native_root="${RUNNER_TEMP}/native-${TARGET}"
+          staging_dir="${RUNNER_TEMP}/staging-${PACKAGE}"
+          asset_name="codex-npm-${NPM_TAG}-${RELEASE_VERSION}.tgz"
+
+          rm -rf "${staging_dir}"
+          mkdir -p dist/npm
+
+          python codex-cli/scripts/build_npm_package.py \
+            --package "${PACKAGE}" \
+            --release-version "${RELEASE_VERSION}" \
+            --staging-dir "${staging_dir}" \
+            --pack-output "dist/npm/${asset_name}" \
+            --vendor-src "${native_root}/vendor"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}-npm
+          path: dist/npm/codex-npm-${{ matrix.npm_tag }}-${{ needs.prepare.outputs.release_version }}.tgz
+
+  release:
+    needs:
+      - prepare
+      - build
+    if: github.repository == 'Nnamllit1/codex-compact-context-fix'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/npm
+          merge-multiple: true
+
+      - name: Stage installer scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/install/install.sh dist/install.sh
+          cp scripts/install/install.ps1 dist/install.ps1
+          cp scripts/install/install-fork.sh dist/install-fork.sh
+          cp scripts/install/install-fork.ps1 dist/install-fork.ps1
+          chmod +x dist/install.sh dist/install-fork.sh
+
+      - name: Write release notes
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          cat > dist/release-notes.md <<EOF
+          Fork release ${RELEASE_VERSION}
+
+          Synced from \`openai/codex\` main at \`${UPSTREAM_SHA}\`.
+
+          This fork release keeps the remote compaction TCP user timeout patch on top of upstream and publishes installable npm-style standalone tarballs for this fork.
+
+          Linux/macOS one-liner:
+          \`curl -fsSL https://raw.githubusercontent.com/Nnamllit1/codex-compact-context-fix/master/scripts/install/install-fork.sh | sh\`
+
+          Windows PowerShell one-liner:
+          \`iwr https://raw.githubusercontent.com/Nnamllit1/codex-compact-context-fix/master/scripts/install/install-fork.ps1 -useb | iex\`
+
+          Release tag: \`${RELEASE_TAG}\`
+          EOF
+
+      - name: Publish fork release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
+          name: ${{ needs.prepare.outputs.release_version }}
+          body_path: dist/release-notes.md
+          files: |
+            dist/install.sh
+            dist/install.ps1
+            dist/install-fork.sh
+            dist/install-fork.ps1
+            dist/npm/*.tgz
+          overwrite_files: true
