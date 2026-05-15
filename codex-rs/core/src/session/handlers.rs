@@ -146,6 +146,8 @@ pub(super) async fn user_input_or_turn_inner(
                     approval_policy: Some(approval_policy),
                     approvals_reviewer,
                     sandbox_policy: Some(sandbox_policy),
+                    workspace_roots: None,
+                    profile_workspace_roots: None,
                     permission_profile,
                     active_permission_profile: None,
                     windows_sandbox_level: None,
@@ -163,6 +165,8 @@ pub(super) async fn user_input_or_turn_inner(
         }
         Op::UserInputWithTurnContext {
             cwd,
+            workspace_roots,
+            profile_workspace_roots,
             approval_policy,
             approvals_reviewer,
             sandbox_policy,
@@ -195,6 +199,8 @@ pub(super) async fn user_input_or_turn_inner(
                 items,
                 SessionSettingsUpdate {
                     cwd,
+                    workspace_roots,
+                    profile_workspace_roots,
                     approval_policy,
                     approvals_reviewer,
                     sandbox_policy,
@@ -635,7 +641,6 @@ async fn shutdown_session_runtime(sess: &Arc<Session>) {
 fn emit_thread_stop_lifecycle(sess: &Session) {
     for contributor in sess.services.extensions.thread_lifecycle_contributors() {
         contributor.on_thread_stop(codex_extension_api::ThreadStopInput {
-            thread_id: sess.conversation_id,
             session_store: &sess.services.session_extension_data,
             thread_store: &sess.services.thread_extension_data,
         });
@@ -700,6 +705,7 @@ pub async fn review(
         .await;
     sess.refresh_mcp_servers_if_requested(&turn_context, Some(sess.mcp_elicitation_reviewer()))
         .await;
+    #[allow(deprecated)]
     match resolve_review_request(review_request, &turn_context.cwd) {
         Ok(resolved) => {
             spawn_review_thread(

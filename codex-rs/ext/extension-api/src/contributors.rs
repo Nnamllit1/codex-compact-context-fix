@@ -1,16 +1,16 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use codex_protocol::ThreadId;
 use codex_protocol::items::TurnItem;
 use codex_protocol::protocol::ReviewDecision;
 use codex_protocol::protocol::TokenUsageInfo;
+use codex_tools::ToolCall;
+use codex_tools::ToolExecutor;
 
 use crate::ExtensionData;
 
 mod prompt;
 mod thread_lifecycle;
-mod tools;
 mod turn_lifecycle;
 
 pub use prompt::PromptFragment;
@@ -18,20 +18,17 @@ pub use prompt::PromptSlot;
 pub use thread_lifecycle::ThreadResumeInput;
 pub use thread_lifecycle::ThreadStartInput;
 pub use thread_lifecycle::ThreadStopInput;
-pub use tools::ExtensionToolExecutor;
-pub use tools::ExtensionToolFuture;
-pub use tools::ExtensionToolOutput;
 pub use turn_lifecycle::TurnAbortInput;
 pub use turn_lifecycle::TurnStartInput;
 pub use turn_lifecycle::TurnStopInput;
 
 /// Extension contribution that adds prompt fragments during prompt assembly.
 pub trait ContextContributor: Send + Sync {
-    fn contribute(
-        &self,
-        session_store: &ExtensionData,
-        thread_store: &ExtensionData,
-    ) -> Vec<PromptFragment>;
+    fn contribute<'a>(
+        &'a self,
+        session_store: &'a ExtensionData,
+        thread_store: &'a ExtensionData,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Vec<PromptFragment>> + Send + 'a>>;
 }
 
 /// Contributor for host-owned thread lifecycle gates.
@@ -68,6 +65,22 @@ pub trait TurnLifecycleContributor: Send + Sync {
     fn on_turn_abort(&self, _input: TurnAbortInput<'_>) {}
 }
 
+/// Contributor for host-owned configuration changes.
+///
+/// Implementations should treat the supplied values as immutable before/after
+/// snapshots of the effective thread configuration.
+pub trait ConfigContributor<C>: Send + Sync {
+    /// Called after the host commits a changed thread configuration.
+    fn on_config_changed(
+        &self,
+        _session_store: &ExtensionData,
+        _thread_store: &ExtensionData,
+        _previous_config: &C,
+        _new_config: &C,
+    ) {
+    }
+}
+
 /// Contributor for token usage checkpoints reported by the model provider.
 ///
 /// Implementations should keep this callback cheap. The host calls it after
@@ -79,8 +92,7 @@ pub trait TokenUsageContributor: Send + Sync {
         &self,
         _session_store: &ExtensionData,
         _thread_store: &ExtensionData,
-        _thread_id: ThreadId,
-        _turn_id: &str,
+        _turn_store: &ExtensionData,
         _token_usage: &TokenUsageInfo,
     ) {
     }
@@ -93,7 +105,7 @@ pub trait ToolContributor: Send + Sync {
         &self,
         session_store: &ExtensionData,
         thread_store: &ExtensionData,
-    ) -> Vec<Arc<dyn ExtensionToolExecutor>>;
+    ) -> Vec<Arc<dyn ToolExecutor<ToolCall>>>;
 }
 
 /// Future returned by one claimed approval-review contribution.
